@@ -4,12 +4,16 @@
  * Main file
  *
  * Authors: Peter Sutton, Ahmed Baig
- * Modified by <YOUR NAME HERE>
+ * Modified by Yiyang Yu
  */ 
 
 /* Definitions */
 
 #define F_CPU 8000000L
+// Define speed switching details
+#define FAST_SPEED 100
+#define SLOW_SPEED 300
+#define SPEED_SWITCH 6
 
 /* External Library Includes */
 
@@ -51,6 +55,9 @@ void start_elevator_emulator(void);
 void handle_inputs(void);
 void draw_elevator(void);
 void draw_floors(void);
+void draw_traveller(void);
+void display_terminal_info(uint8_t current_position, uint8_t destination);
+uint16_t get_speed(void);
 
 /* Main */
 
@@ -85,6 +92,10 @@ void initialise_hardware(void) {
 	
 	// Turn on global interrupts
 	sei();
+
+	// Set PortC Pin 6 as input for S2
+	DDRC &= ~(1 << SPEED_SWITCH);
+	PORTC |= (1 << SPEED_SWITCH);
 }
 
 /**
@@ -182,7 +193,7 @@ void start_elevator_emulator(void) {
 	while(true) {
 		
 		// Only update the elevator every 200 ms
-		if (get_current_time() - time_since_move > 200) {	
+		if (get_current_time() - time_since_move > get_speed()) {	
 			
 			// Adjust the elevator based on where it needs to go
 			if (destination - current_position > 0) { // Move up
@@ -362,5 +373,14 @@ void draw_traveller(void) {
 	if (traveller_active) {
 		int8_t y = traveller_floor + 1;
 		update_square_colour(4, y, MATRIX_COLOUR_TRAVELLER_0); // Draw as light red
+	}
+}
+
+// Called for speed switch
+uint16_t get_speed(void) {
+	if ((PINC & (1 << SPEED_SWITCH)) == 0) { // Use bit masking to judge if the switch is 0/1
+		return SLOW_SPEED;
+	} else {
+		return FAST_SPEED;
 	}
 }
