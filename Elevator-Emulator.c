@@ -38,6 +38,10 @@ typedef enum {UNDEF_FLOOR = -1, FLOOR_0=0, FLOOR_1=4, FLOOR_2=8, FLOOR_3=12} Ele
 uint32_t time_since_move;
 ElevatorFloor current_position;
 ElevatorFloor destination;
+ElevatorFloor traveller_floor;
+// For traveller status determine
+bool traveller_active;
+bool traveller_moving;
 
 /* Internal Function Declarations */
 
@@ -104,6 +108,7 @@ void start_screen(void) {
 	uint32_t interval_delay = 150;
 	uint8_t frame = 0;
 	uint8_t doors_opening_closing = 1; // 1 => opening, 0 => closing
+	
 	
 	// Wait until a button is pressed, or 's' is pressed on the terminal
 	while(1) {
@@ -185,9 +190,27 @@ void start_elevator_emulator(void) {
 			} else if (destination - current_position < 0) { // Move down
 				current_position--;
 			}
+
+			// Determine the status of traveller
+			if (traveller_active && current_position == traveller_floor) {
+				traveller_active = false;
+				traveller_moving = true;
+				
+				// Clear the LED
+				int8_t y = traveller_floor +1;
+				update_square_colour(4, y, MATRIX_COLOUR_EMPTY);
+				
+				// Move traveller to floor 0
+				destination = FLOOR_0;
+			}
+			if (traveller_moving && current_position == FLOOR_0) {
+				traveller_moving = false;
+			}
 			
 			// As we have potentially changed the elevator position, lets redraw it
 			draw_elevator();
+
+			draw_traveller();
 			
 			time_since_move = get_current_time(); // Reset delay until next movement update
 		}
@@ -279,28 +302,32 @@ void handle_inputs(void) {
 		serial_input = fgetc(stdin);
 	}
 	
-	// Judge the serail input / button pressed to set destination
-	if (btn == BUTTON0_PUSHED || serial_input == '0') {
-		// Move to Floor 0
-		destination = FLOOR_0;
-	} else if (btn == BUTTON1_PUSHED || serial_input == '1') {
-		// Move to Floor 1
-		destination = FLOOR_1;
-	} else if (btn == BUTTON2_PUSHED || serial_input == '2') {
-		// Move to Floor 2
-		destination = FLOOR_2;
-	} else if (btn == BUTTON3_PUSHED || serial_input == '3') {
-		// Move to Floor 3
-		destination = FLOOR_3;
+	// Judge the button/key input and traveller status to set destination
+	if (!traveller_active && !traveller_moving) {
+		if (btn == BUTTON0_PUSHED || serial_input == '0') {
+			traveller_floor = FLOOR_0;
+		} else if (btn == BUTTON1_PUSHED || serial_input == '1') {
+			traveller_floor = FLOOR_1;
+		} else if (btn == BUTTON2_PUSHED || serial_input == '2') {
+			traveller_floor = FLOOR_2;
+		} else if (btn == BUTTON3_PUSHED || serial_input == '3') {
+			traveller_floor = FLOOR_3;
+		} else {
+			return; // No button/key pressed
+		}
+	
+		// Create the traveller
+		traveller_active = true;
+		destination = traveller_floor;
 	}
 	
 }
 
 
 // Define a variable and a string to handle the comparison afterward
- static int previous_position = -1;
+static int previous_position = -1;
 static char previous_direction[11] = "";
-
+// Called to display infos in serial terminal (putty)
 void display_terminal_info(uint8_t current_position, uint8_t destination) {
 	// Set a pointer for strings refering later
 	const char *direction;
@@ -327,5 +354,13 @@ void display_terminal_info(uint8_t current_position, uint8_t destination) {
 		// Save the current infos for comparison
 		strncpy(previous_direction, direction, sizeof(previous_direction));
 		previous_position = current_position;
+	}
+}
+
+// Called to draw the traveller
+void draw_traveller(void) {
+	if (traveller_active) {
+		int8_t y = traveller_floor + 1;
+		update_square_colour(4, y, MATRIX_COLOUR_TRAVELLER_0); // Draw as light red
 	}
 }
