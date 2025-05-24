@@ -13,7 +13,10 @@
 // Define speed switching details
 #define FAST_SPEED 100
 #define SLOW_SPEED 300
-#define SPEED_SWITCH 6
+#define SPEED_SWITCH 7
+#define SSD_A 4
+#define SSD_D 5
+#define SSD_G 6
 
 /* External Library Includes */
 
@@ -58,6 +61,7 @@ void draw_floors(void);
 void draw_traveller(void);
 void display_terminal_info(uint8_t current_position, uint8_t destination);
 uint16_t get_speed(void);
+void direction_ssd(ElevatorFloor current_position, ElevatorFloor destination);
 
 /* Main */
 
@@ -93,9 +97,13 @@ void initialise_hardware(void) {
 	// Turn on global interrupts
 	sei();
 
-	// Set PortC Pin 6 as input for S2
+	// Set PortC Pin 7 as input for S2
 	DDRC &= ~(1 << SPEED_SWITCH);
 	PORTC |= (1 << SPEED_SWITCH);
+
+	//Set PortC Pin 4-6 as outputs for SSD segments
+	DDRC |= (1 << SSD_A) | (1 << SSD_D) |(1 << SSD_G);
+	PORTC |= ~((1 << SSD_A) | (1 << SSD_D) |(1 << SSD_G));
 }
 
 /**
@@ -218,6 +226,8 @@ void start_elevator_emulator(void) {
 				traveller_moving = false;
 			}
 			
+			direction_ssd(current_position, destination);
+
 			// As we have potentially changed the elevator position, lets redraw it
 			draw_elevator();
 
@@ -228,9 +238,12 @@ void start_elevator_emulator(void) {
 		
 		// Handle any button or key inputs
 		handle_inputs();
-		
+
 		// Update the terminal info if needed
 		display_terminal_info(current_position, destination);
+
+		// Update the ssd display if needed
+		direction_ssd(current_position, destination);
 	}
 }
 
@@ -382,5 +395,19 @@ uint16_t get_speed(void) {
 		return SLOW_SPEED;
 	} else {
 		return FAST_SPEED;
+	}
+}
+
+
+void direction_ssd(ElevatorFloor current_position, ElevatorFloor destination) {
+
+	PORTC &= ~((1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G));
+
+	if (destination > current_position) {
+		PORTC |= (1 << SSD_A);
+	} else if (destination < current_position) {
+		PORTC |= (1 << SSD_D);
+	} else {
+		PORTC |= (1 << SSD_G);
 	}
 }
