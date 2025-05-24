@@ -193,6 +193,8 @@ void start_elevator_emulator(void) {
 		
 		// Handle any button or key inputs
 		handle_inputs();
+		
+		display_terminal_info(current_position, destination);
 	}
 }
 
@@ -290,4 +292,34 @@ void handle_inputs(void) {
 		destination = FLOOR_3;
 	}
 	
+}
+
+/**
+ * @brief 
+ */
+static int previous_position = -1;
+static char previous_direction[12] = "";
+void display_terminal_info(uint8_t current_position, uint8_t destination) {
+	const char *direction;
+
+	if (current_position < destination) {
+		direction = "Up";
+	}  else if (current_position > destination) {
+		direction = "Down";
+	} else {
+		direction = 'Stationary';
+	}
+
+	int floor_number = ((int)current_position) / 4;
+
+	if (current_position != previous_position || previous_direction != direction) {
+		move_terminal_cursor(1, 1);
+		printf_P(PSTR("Current Floor: %d   "), floor_number);
+
+		move_terminal_cursor(1, 2);
+		printf_P(PSTR("Direction: %s       "), direction);
+
+		strncpy(previous_direction, direction, sizeof(previous_direction));
+		previous_position = current_position;
+	}
 }
