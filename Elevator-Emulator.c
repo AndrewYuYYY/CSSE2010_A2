@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <util/delay.h>
 #include <stdbool.h>
+#include <string.h>
 
 /* Internal Library Includes */
 
@@ -194,6 +195,7 @@ void start_elevator_emulator(void) {
 		// Handle any button or key inputs
 		handle_inputs();
 		
+		// Update the terminal info if needed
 		display_terminal_info(current_position, destination);
 	}
 }
@@ -294,31 +296,35 @@ void handle_inputs(void) {
 	
 }
 
-/**
- * @brief 
- */
-static int previous_position = -1;
-static char previous_direction[12] = "";
+
+// Define a variable and a string to handle the comparison afterward
+ static int previous_position = -1;
+static char previous_direction[11] = "";
+
 void display_terminal_info(uint8_t current_position, uint8_t destination) {
+	// Set a pointer for strings refering later
 	const char *direction;
 
+	// Compare current position to determine the direction
 	if (current_position < destination) {
 		direction = "Up";
 	}  else if (current_position > destination) {
 		direction = "Down";
 	} else {
-		direction = 'Stationary';
+		direction = "Stationary";
 	}
 
+	// Convert the matrix position into floor number
 	int floor_number = ((int)current_position) / 4;
 
-	if (current_position != previous_position || previous_direction != direction) {
-		move_terminal_cursor(1, 1);
-		printf_P(PSTR("Current Floor: %d   "), floor_number);
+	if (current_position != previous_position || strcmp(previous_direction, direction) != 0) { // Compare the current info with previous one to see if update needed
+		move_terminal_cursor(1, 1);  // Allocate the infos at the correct place
+		printf_P(PSTR("Current Floor: %d   "), floor_number);  // Put some space after to overwrite the previous printing
 
-		move_terminal_cursor(1, 2);
-		printf_P(PSTR("Direction: %s       "), direction);
+		move_terminal_cursor(1, 2);  // Print the direction info at next line
+		printf_P(PSTR("Direction: %s        "), direction);
 
+		// Save the current infos for comparison
 		strncpy(previous_direction, direction, sizeof(previous_direction));
 		previous_position = current_position;
 	}
