@@ -62,8 +62,8 @@ ElevatorFloor potential_destination;
 int previous_position = -1;
 char previous_direction[11] = "";
 // For traveller status determine
-bool traveller_active = true;
-bool traveller_moving = true;
+bool traveller_active;
+bool traveller_moving;
 // Traveller colour
 uint8_t traveller_destination;
 // To toggle the SSD
@@ -72,7 +72,7 @@ uint32_t time_since_ssd_toggle;
 // To count the floors traveled
 uint8_t floors_with_traveller = 0;
 uint8_t floors_without_traveller = 0;
-int8_t previous_floor = -1;
+int8_t previous_floor = 0;
 
 /* Internal Function Declarations */
 
@@ -89,6 +89,7 @@ void direction_ssd(ElevatorFloor current_position, ElevatorFloor destination);
 uint8_t switch_destination(void);
 uint8_t get_traveller_destination(uint8_t destination);
 void toggle_ssd(void);
+void update_floor_num(void);
 
 /* Main */
 
@@ -249,6 +250,9 @@ void start_elevator_emulator(void) {
 				current_position--;
 			}
 
+			// Update the floor travelled
+			update_floor_num();
+
 			// Determine the status of traveller
 			if (traveller_active && current_position == traveller_floor) {
 				traveller_active = false;
@@ -271,7 +275,9 @@ void start_elevator_emulator(void) {
 			draw_elevator();
 			// Redraw the traveller
 			draw_traveller();
+
 			
+
 			time_since_move = get_current_time(); // Reset delay until next movement update
 		}
 		// Toggle the SSD frequently to show both at the same time
@@ -538,4 +544,23 @@ void toggle_ssd(void) {
 	}
 	// Toggle the ssd
 	show_ssd_left = !show_ssd_left;
+}
+
+// Called for update floor travelling infos
+void update_floor_num(void) {
+	int8_t current_floor = current_position / 4; // Set for later comparison
+	if  (current_floor != previous_floor) {
+		if (traveller_moving) { // Judge if the elevator moved any tranveller
+			floors_with_traveller++;
+		} else {
+			floors_without_traveller++;
+		}
+		previous_floor = current_floor;
+
+		// Placed the info shown in the terminal with an appropriate way
+		move_terminal_cursor(1, 3);
+		printf_P(PSTR("Floors with Traveller: %u"), floors_with_traveller);
+		move_terminal_cursor(1, 4);
+		printf_P(PSTR("Floor without Traveller: %u"), floors_without_traveller);
+	}
 }
