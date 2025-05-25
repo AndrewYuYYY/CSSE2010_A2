@@ -9,14 +9,19 @@
 
 /* Definitions */
 
-#define F_CPU 8000000L
+//#define F_CPU 8000000L
+
 // Define speed switching details
 #define FAST_SPEED 100
 #define SLOW_SPEED 300
 #define SPEED_SWITCH 7
+// Define SSD connected pins
 #define SSD_A 4
 #define SSD_D 5
 #define SSD_G 6
+// Define destination swithes
+#define SWITCH_S0 2
+#define SWITCH_S1 3
 
 /* External Library Includes */
 
@@ -46,9 +51,12 @@ uint32_t time_since_move;
 ElevatorFloor current_position;
 ElevatorFloor destination;
 ElevatorFloor traveller_floor;
+ElevatorFloor potential_destination;
 // For traveller status determine
 bool traveller_active;
 bool traveller_moving;
+// Traveller colour
+uint8_t traveller_destination;
 
 /* Internal Function Declarations */
 
@@ -62,6 +70,8 @@ void draw_traveller(void);
 void display_terminal_info(uint8_t current_position, uint8_t destination);
 uint16_t get_speed(void);
 void direction_ssd(ElevatorFloor current_position, ElevatorFloor destination);
+uint8_t switch_destination(void);
+uint8_t get_traveller_destination(uint8_t destination);
 
 /* Main */
 
@@ -101,9 +111,13 @@ void initialise_hardware(void) {
 	DDRC &= ~(1 << SPEED_SWITCH);
 	PORTC |= (1 << SPEED_SWITCH);
 
-	//Set PortC Pin 4-6 as outputs for SSD segments
+	// Set PortC Pin 4-6 as outputs for SSD segments
 	DDRC |= (1 << SSD_A) | (1 << SSD_D) |(1 << SSD_G);
 	PORTC |= ~((1 << SSD_A) | (1 << SSD_D) |(1 << SSD_G));
+
+	// Set PortC Pin 2 connect to S0, Pin 3 connect to S1
+	DDRC &= ~((1 << SWITCH_S0) | (1 << SWITCH_S1));
+	PORTC |= (1 << SWITCH_S0) | (1 << SWITCH_S1);
 }
 
 /**
@@ -219,10 +233,10 @@ void start_elevator_emulator(void) {
 				int8_t y = traveller_floor +1;
 				update_square_colour(4, y, MATRIX_COLOUR_EMPTY);
 				
-				// Move traveller to floor 0
-				destination = FLOOR_0;
+				// Move traveller to destination
+				destination = potential_destination;
 			}
-			if (traveller_moving && current_position == FLOOR_0) {
+			if (traveller_moving && current_position == destination) {
 				traveller_moving = false;
 			}
 			
@@ -230,7 +244,7 @@ void start_elevator_emulator(void) {
 
 			// As we have potentially changed the elevator position, lets redraw it
 			draw_elevator();
-
+			// Redraw the traveller
 			draw_traveller();
 			
 			time_since_move = get_current_time(); // Reset delay until next movement update
@@ -328,21 +342,37 @@ void handle_inputs(void) {
 	
 	// Judge the button/key input and traveller status to set destination
 	if (!traveller_active && !traveller_moving) {
+		// Define potential movements
+		ElevatorFloor potential_floor;
+		uint8_t destination_floor;
+		
+		// Judge the button/key inputs
 		if (btn == BUTTON0_PUSHED || serial_input == '0') {
-			traveller_floor = FLOOR_0;
+			potential_floor = FLOOR_0;
 		} else if (btn == BUTTON1_PUSHED || serial_input == '1') {
-			traveller_floor = FLOOR_1;
+			potential_floor = FLOOR_1;
 		} else if (btn == BUTTON2_PUSHED || serial_input == '2') {
-			traveller_floor = FLOOR_2;
+			potential_floor = FLOOR_2;
 		} else if (btn == BUTTON3_PUSHED || serial_input == '3') {
-			traveller_floor = FLOOR_3;
+			potential_floor = FLOOR_3;
 		} else {
 			return; // No button/key pressed
 		}
-	
+		
+		// Handle the switch input
+		destination_floor = switch_destination();
+		potential_destination = destination_floor * 4;
+		
+		// Judge if the traveller already on his destination, ignore if so
+		if (potential_floor == potential_destination) {
+			return;
+		}
+
 		// Create the traveller
 		traveller_active = true;
+		traveller_floor = potential_floor;
 		destination = traveller_floor;
+		traveller_destination = get_traveller_destination(destination_floor); // Used to indicate the colour
 	}
 	
 }
@@ -385,7 +415,7 @@ void display_terminal_info(uint8_t current_position, uint8_t destination) {
 void draw_traveller(void) {
 	if (traveller_active) {
 		int8_t y = traveller_floor + 1;
-		update_square_colour(4, y, MATRIX_COLOUR_TRAVELLER_0); // Draw as light red
+		update_square_colour(4, y, traveller_destination); // Draw as destination indicated
 	}
 }
 
@@ -398,16 +428,35 @@ uint16_t get_speed(void) {
 	}
 }
 
-
+// Called for left ssd
 void direction_ssd(ElevatorFloor current_position, ElevatorFloor destination) {
-
+	// Clear the segments
 	PORTC &= ~((1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G));
 
+	// Judge which segment turns on
 	if (destination > current_position) {
 		PORTC |= (1 << SSD_A);
 	} else if (destination < current_position) {
 		PORTC |= (1 << SSD_D);
 	} else {
 		PORTC |= (1 << SSD_G);
+	}
+}
+
+// Handle switch input
+uint8_t switch_destination(void) {
+	uint8_t s0 = (PINC >> SWITCH_S0) & 1;
+	uint8_t s1 = (PINC >> SWITCH_S1) & 1;
+	return (s1 << 1) | s0;
+}
+
+// Get corresponding traveller destination type (as object)
+uint8_t get_traveller_destination(uint8_t destination) {
+	switch (destination){
+		case 0:return TRAVELLER_TO_0;
+		case 1:return TRAVELLER_TO_1;
+		case 2:return TRAVELLER_TO_2;
+		case 3:return TRAVELLER_TO_3;
+		default:return TRAVELLER_TO_0;
 	}
 }
