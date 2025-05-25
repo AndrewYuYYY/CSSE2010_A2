@@ -17,8 +17,14 @@
 #define SPEED_SWITCH 7
 // Define SSD connected pins
 #define SSD_A 4
+#define SSD_B 7
+#define SSD_C 6
 #define SSD_D 5
+#define SSD_E 5
+#define SSD_F 4
 #define SSD_G 6
+#define SSD_CC 1
+#define SSD_DP 0
 // Define destination swithes
 #define SWITCH_S0 2
 #define SWITCH_S1 3
@@ -52,11 +58,21 @@ ElevatorFloor current_position;
 ElevatorFloor destination;
 ElevatorFloor traveller_floor;
 ElevatorFloor potential_destination;
+// Define a variable and a string to handle the comparison afterward
+int previous_position = -1;
+char previous_direction[11] = "";
 // For traveller status determine
-bool traveller_active;
-bool traveller_moving;
+bool traveller_active = true;
+bool traveller_moving = true;
 // Traveller colour
 uint8_t traveller_destination;
+// To toggle the SSD
+bool show_ssd_left = true;
+uint32_t time_since_ssd_toggle;
+// To count the floors traveled
+uint8_t floors_with_traveller = 0;
+uint8_t floors_without_traveller = 0;
+int8_t previous_floor = -1;
 
 /* Internal Function Declarations */
 
@@ -72,6 +88,7 @@ uint16_t get_speed(void);
 void direction_ssd(ElevatorFloor current_position, ElevatorFloor destination);
 uint8_t switch_destination(void);
 uint8_t get_traveller_destination(uint8_t destination);
+void toggle_ssd(void);
 
 /* Main */
 
@@ -111,13 +128,20 @@ void initialise_hardware(void) {
 	DDRC &= ~(1 << SPEED_SWITCH);
 	PORTC |= (1 << SPEED_SWITCH);
 
-	// Set PortC Pin 4-6 as outputs for SSD segments
-	DDRC |= (1 << SSD_A) | (1 << SSD_D) |(1 << SSD_G);
-	PORTC |= ~((1 << SSD_A) | (1 << SSD_D) |(1 << SSD_G));
+	// Set PortC Pins 0,1,4-6 as outputs for SSD segments
+	DDRC |= (1 << SSD_A) | (1 << SSD_D) |(1 << SSD_G) | (1 << SSD_CC) | (1 << SSD_DP);
+	PORTC &= ~((1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G) | (1 << SSD_CC) | (1 << SSD_DP));
+
+	// Set PortD Pins 4-7 as outputs for SSD segments
+	DDRD |= (1 << SSD_B) | (1 << SSD_C) | (1 << SSD_E) | (1 << SSD_F);
+	PORTD &= ~((1 << SSD_B) | (1 << SSD_C) | (1 << SSD_E) | (1 << SSD_F));
 
 	// Set PortC Pin 2 connect to S0, Pin 3 connect to S1
 	DDRC &= ~((1 << SWITCH_S0) | (1 << SWITCH_S1));
 	PORTC |= (1 << SWITCH_S0) | (1 << SWITCH_S1);
+
+	// Set CC high at first (left SSD is activated)
+	PORTC |= (1 << SSD_CC);
 }
 
 /**
@@ -204,6 +228,7 @@ void start_elevator_emulator(void) {
 
 	// Initialise local variables
 	time_since_move = get_current_time();
+	time_since_ssd_toggle = 0;
 	
 	// Draw the floors and elevator
 	draw_elevator();
@@ -214,7 +239,7 @@ void start_elevator_emulator(void) {
 	
 	while(true) {
 		
-		// Only update the elevator every 200 ms
+		// Update the Elevator as selected speed
 		if (get_current_time() - time_since_move > get_speed()) {	
 			
 			// Adjust the elevator based on where it needs to go
@@ -249,6 +274,11 @@ void start_elevator_emulator(void) {
 			
 			time_since_move = get_current_time(); // Reset delay until next movement update
 		}
+		// Toggle the SSD frequently to show both at the same time
+		if (get_current_time() - time_since_ssd_toggle >= 0.1) {
+			toggle_ssd();
+			time_since_ssd_toggle = get_current_time();
+		}
 		
 		// Handle any button or key inputs
 		handle_inputs();
@@ -256,8 +286,6 @@ void start_elevator_emulator(void) {
 		// Update the terminal info if needed
 		display_terminal_info(current_position, destination);
 
-		// Update the ssd display if needed
-		direction_ssd(current_position, destination);
 	}
 }
 
@@ -346,7 +374,7 @@ void handle_inputs(void) {
 		ElevatorFloor potential_floor;
 		uint8_t destination_floor;
 		
-		// Judge the button/key inputs
+		// Judge the button/key input
 		if (btn == BUTTON0_PUSHED || serial_input == '0') {
 			potential_floor = FLOOR_0;
 		} else if (btn == BUTTON1_PUSHED || serial_input == '1') {
@@ -377,10 +405,6 @@ void handle_inputs(void) {
 	
 }
 
-
-// Define a variable and a string to handle the comparison afterward
-static int previous_position = -1;
-static char previous_direction[11] = "";
 // Called to display infos in serial terminal (putty)
 void display_terminal_info(uint8_t current_position, uint8_t destination) {
 	// Set a pointer for strings refering later
@@ -396,11 +420,11 @@ void display_terminal_info(uint8_t current_position, uint8_t destination) {
 	}
 
 	// Convert the matrix position into floor number
-	int floor_number = ((int)current_position) / 4;
+	int8_t floor_number = ((int)current_position) / 4;
 
 	if (current_position != previous_position || strcmp(previous_direction, direction) != 0) { // Compare the current info with previous one to see if update needed
 		move_terminal_cursor(1, 1);  // Allocate the infos at the correct place
-		printf_P(PSTR("Current Floor: %d   "), floor_number);  // Put some space after to overwrite the previous printing
+		printf_P(PSTR("Current Floor: %u   "), floor_number);  // Put some space after to overwrite the previous printing
 
 		move_terminal_cursor(1, 2);  // Print the direction info at next line
 		printf_P(PSTR("Direction: %s        "), direction);
@@ -409,6 +433,22 @@ void display_terminal_info(uint8_t current_position, uint8_t destination) {
 		strncpy(previous_direction, direction, sizeof(previous_direction));
 		previous_position = current_position;
 	}
+
+	/*int8_t previous_floor = 0;
+	if (floor_number != previous_floor) {
+		if (traveller_moving) {
+			floors_with_traveller++;
+		} else {
+			floors_without_traveller++;
+		}
+		previous_floor = floor_number;
+
+		move_terminal_cursor(1, 3);
+		printf_P(PSTR("Floors with Traveller: %u"), floors_with_traveller);
+
+		move_terminal_cursor(1, 4);
+		printf_P(PSTR("Floors without Traveller: %u"), floors_without_traveller);
+	}**/
 }
 
 // Called to draw the traveller
@@ -459,4 +499,43 @@ uint8_t get_traveller_destination(uint8_t destination) {
 		case 3:return TRAVELLER_TO_3;
 		default:return TRAVELLER_TO_0;
 	}
+}
+
+// Set the Port C and Port D digits for corresponding SSD display (0, 1, 2, 3)
+const uint8_t portc_digit[4] = {
+	(1 << SSD_A) | (1 << SSD_D),
+	0,
+	(1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G),
+	(1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G)
+};
+const uint8_t portd_digit[4] = {
+	(1 << SSD_B) | (1 << SSD_C) | (1 << SSD_E) | (1 << SSD_F),
+	(1 << SSD_B) | (1 << SSD_C),
+	(1 << SSD_B) | (1 << SSD_E),
+	(1 << SSD_B) | (1 << SSD_C)
+};
+
+// Called for switching the left and right SSD
+void toggle_ssd(void) {
+	// Clear the CC
+	PORTC &= ~(1 << SSD_CC);
+	// Clear the segments
+	PORTC &= ~((1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G) | (1 << SSD_DP));
+	PORTD &= ~((1 << SSD_B) | (1 << SSD_C) | (1 << SSD_E) | (1 << SSD_F));
+
+	if (show_ssd_left) {
+		// Show the direction
+		direction_ssd(current_position, destination);
+		PORTC |= (1 << SSD_CC);
+		PORTC &= ~(1 << SSD_DP);
+	} else {
+		// Show the floor currently in
+		uint8_t floor_num = current_position / 4;
+		PORTC |= portc_digit[floor_num];
+		PORTD |= portd_digit[floor_num];
+		PORTC |= (1 << SSD_DP);
+		PORTC &= ~(1 << SSD_CC);
+	}
+	// Toggle the ssd
+	show_ssd_left = !show_ssd_left;
 }
