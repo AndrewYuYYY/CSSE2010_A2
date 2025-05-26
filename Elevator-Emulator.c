@@ -35,6 +35,9 @@
 #define LED1 PA1
 #define LED2 PA2
 #define LED3 PA3
+// Define queue limitation
+#define MAX_TRAVELLERS 10
+#define MATRIX_WIDTH 8
 
 /* External Library Includes */
 
@@ -83,6 +86,17 @@ uint8_t previous_floor = 0;
 // For door animation status determine
 bool door_active = false;
 uint32_t door_start_time = 0;
+// For queue declarations
+ElevatorFloor queue_origin[MAX_TRAVELLERS];
+ElevatorFloor queue_destination[MAX_TRAVELLERS];
+ElevatorFloor current_origin; // Handle the current traveller
+ElevatorFloor current_destination;
+uint8_t queue_start = 0;
+uint8_t queue_end = 0;
+uint8_t queue_num = 0;
+bool queue_move = false;
+// bool queue_removed = false;
+uint8_t queue_stage = 0; // Indicate the elevator status (picking up/dropping off)
 
 /* Internal Function Declarations */
 
@@ -103,6 +117,7 @@ void update_floor_num(void);
 void play_tone(uint16_t frequency, uint16_t duration);
 void create_door_animation(void);
 void update_door_animation(void);
+void draw_queue_traveller(void);
 
 /* Main */
 
@@ -267,6 +282,35 @@ void start_elevator_emulator(void) {
 	while(true) {
 		update_door_animation();
 
+		if (!queue_move && queue_num > 0) {
+			current_origin = queue_origin[queue_start];
+			current_destination = queue_destination[queue_start];
+			// queue_start = (queue_start + 1) % MAX_TRAVELLERS;
+			// queue_num--;
+			// draw_queue_traveller();
+
+			destination = current_origin;
+			queue_move = true;
+			queue_stage = 0;
+			// queue_removed = true;
+		}
+
+		if (!door_active && queue_move && current_position == destination) {
+			play_tone(500, 100);
+			create_door_animation();
+
+			if(queue_stage == 0) {
+				queue_start = (queue_start + 1) % MAX_TRAVELLERS;
+				queue_num--;
+				draw_queue_traveller();
+
+				destination = current_destination;
+				queue_stage = 1;;
+			} else {
+				queue_move = false;
+			}
+		}
+
 		// Move the elevator if there's no active animation
 		if (!door_active) {	
 			// Update the Elevator as selected speed
@@ -282,33 +326,33 @@ void start_elevator_emulator(void) {
 				// Update the floor travelled
 				update_floor_num();
 
-				// Determine the status of traveller
-				if (traveller_active && current_position == traveller_floor) {
-					// Play tone for pick up
-					play_tone(500, 100);
+				// // Determine the status of traveller
+				// if (traveller_active && current_position == traveller_floor) {
+				// 	// Play tone for pick up
+				// 	play_tone(500, 100);
 					
-					// Show the door animation for pick up
-					create_door_animation();
+				// 	// Show the door animation for pick up
+				// 	create_door_animation();
 
-					traveller_active = false;
-					traveller_moving = true;
+				// 	traveller_active = false;
+				// 	traveller_moving = true;
 					
-					// Clear the LED
-					int8_t y = traveller_floor +1;
-					update_square_colour(4, y, MATRIX_COLOUR_EMPTY);
+				// 	// Clear the LED
+				// 	int8_t y = traveller_floor +1;
+				// 	update_square_colour(4, y, MATRIX_COLOUR_EMPTY);
 					
-					// Move traveller to destination
-					destination = potential_destination;
-				}
-				if (traveller_moving && current_position == destination) {
-					// Play tone for drop off
-					play_tone(500, 100);
+				// 	// Move traveller to destination
+				// 	destination = potential_destination;
+				// }
+				// if (traveller_moving && current_position == destination) {
+				// 	// Play tone for drop off
+				// 	play_tone(500, 100);
 					
-					// Show the door animation for drop off
-					create_door_animation();
+				// 	// Show the door animation for drop off
+				// 	create_door_animation();
 
-					traveller_moving = false;
-				}
+				// 	traveller_moving = false;
+				// }
 				
 				direction_ssd(current_position, destination);
 
@@ -326,7 +370,7 @@ void start_elevator_emulator(void) {
 			// Update the terminal info if needed
 			display_terminal_info(current_position, destination);
 		}
-		
+
 		// Toggle the SSD frequently to show both at the same time
 		if (get_current_time() - time_since_ssd_toggle > 0.1) {
 			toggle_ssd();
@@ -414,46 +458,58 @@ void handle_inputs(void) {
 	if (serial_input_available()) {
 		serial_input = fgetc(stdin);
 	}
+
+	// // Judge the button/key input and traveller status to set destination
+	// if (!traveller_active && !traveller_moving) {
+
+	// Define potential movements
+	uint8_t potential_floor;
+	uint8_t destination_floor;
 	
-	// Judge the button/key input and traveller status to set destination
-	if (!traveller_active && !traveller_moving) {
-		// Define potential movements
-		ElevatorFloor potential_floor;
-		uint8_t destination_floor;
-		
-		// Judge the button/key input
-		if (btn == BUTTON0_PUSHED || serial_input == '0') {
-			potential_floor = FLOOR_0;
-		} else if (btn == BUTTON1_PUSHED || serial_input == '1') {
-			potential_floor = FLOOR_1;
-		} else if (btn == BUTTON2_PUSHED || serial_input == '2') {
-			potential_floor = FLOOR_2;
-		} else if (btn == BUTTON3_PUSHED || serial_input == '3') {
-			potential_floor = FLOOR_3;
-		} else {
-			return; // No button/key pressed
-		}
-		
-		// Handle the switch input
-		destination_floor = switch_destination();
-		potential_destination = destination_floor * 4;
-		
-		// Judge if the traveller already on his destination, ignore if so
-		if (potential_floor == potential_destination) {
-			return;
-		}
-
-		// Play tone for traveller putted
-		play_tone(3000, 50);
-
-		// Create the traveller
-		traveller_active = true;
-		traveller_floor = potential_floor;
-		destination = traveller_floor;
-		traveller_destination = get_traveller_destination(destination_floor); // Used to indicate the colour
-
-
+	// Judge the button/key input
+	if (btn == BUTTON0_PUSHED || serial_input == '0') {
+		potential_floor = FLOOR_0;
+	} else if (btn == BUTTON1_PUSHED || serial_input == '1') {
+		potential_floor = FLOOR_1;
+	} else if (btn == BUTTON2_PUSHED || serial_input == '2') {
+		potential_floor = FLOOR_2;
+	} else if (btn == BUTTON3_PUSHED || serial_input == '3') {
+		potential_floor = FLOOR_3;
+	} else {
+		return; // No button/key pressed
 	}
+	
+	// Handle the switch input
+	destination_floor = switch_destination();
+	
+	// Judge if the traveller already on his destination, ignore if so
+	if (potential_floor == destination_floor * 4) {
+		return;
+	}
+
+	// Queue the Traveller if available
+	if (queue_num < MAX_TRAVELLERS) {
+        queue_origin[queue_end] = (ElevatorFloor)(potential_floor);
+        queue_destination[queue_end] = (ElevatorFloor)(destination_floor * 4); // Convert 0-3 to 0-12
+        queue_end = (queue_end + 1) % MAX_TRAVELLERS; // Put the next Traveller's info in nect slot
+        queue_num++;
+
+        // feedback & redraw
+        play_tone(3000, 50);
+        draw_queue_traveller();
+    }
+
+	// 	// Play tone for traveller putted
+	// 	play_tone(3000, 50);
+
+	// 	// Create the traveller
+	// 	traveller_active = true;
+	// 	traveller_floor = potential_floor;
+	// 	destination = traveller_floor;
+	// 	traveller_destination = get_traveller_destination(destination_floor); // Used to indicate the colour
+
+
+	// }
 	
 }
 
@@ -666,4 +722,62 @@ void update_door_animation(void) {
 		door_active = false;
 		PORTA &= ~((1 << LED0) | (1 << LED1) | (1 << LED2) | (1 << LED3));
 	}
+}
+
+// Called for multi-Traveller drawing (queueing Travellers)
+void draw_queue_traveller(void) {
+	// Count for waiting Travellers on each floor
+	uint8_t waiting_travellers[4] = {0, 0, 0, 0};
+	for (uint8_t i =0; i < queue_num; i++) {
+		uint8_t queue_slot = (queue_start + i) % MAX_TRAVELLERS;
+		uint8_t queue_floor = queue_origin[queue_slot] / 4;
+		// Set the limitation
+		if (waiting_travellers[queue_floor] < (MATRIX_WIDTH - 4)) {
+			waiting_travellers[queue_floor]++;
+		}
+	}
+
+	// Clear column 4-7 on each floor
+	for (uint8_t f = 0; f < 4; f++) {
+		uint8_t y = f * 4 + 1;
+		for (uint8_t x = 4; x < MATRIX_WIDTH; x++) {
+			update_square_colour(x, y, EMPTY_SQUARE);
+		}
+	}
+
+
+    // Draw waiting Travellers on each floor
+    for (uint8_t f = 0; f < 4; f++) {
+        uint8_t y = f * 4 + 1;
+        uint8_t queue_x = 0;
+        // Repeating for every existing Traveller
+        for (uint8_t i = 0; i < queue_num && queue_x < waiting_travellers[f]; i++) {
+            uint8_t queue_slot = (queue_start + i) % MAX_TRAVELLERS;
+            uint8_t queue_floor = queue_origin[queue_slot] / 4;
+            if (queue_floor != f) continue; // Only draw Traveller on current floor for once
+            // Get the corresponding colour to Traveller's destination
+            uint8_t destination_floor = queue_destination[queue_slot] / 4;
+            uint8_t traveller_colour = get_traveller_destination(destination_floor);
+			// Set the coordinates of drawing
+            uint8_t x = queue_x + 4;
+            update_square_colour(x, y, traveller_colour);
+            queue_x++;
+        }
+    }
+
+	// for (uint8_t f = 0; f < 4; f++) {
+	// 	uint8_t y = f * 4 + 1;
+	// 	for (uint8_t x = 4; x < MATRIX_WIDTH; x++) {
+	// 		update_square_colour(x, y, EMPTY_SQUARE);
+	// 	}
+	// }
+
+	// for (uint8_t queue_x = 0; queue_x < queue_num && queue_x < MATRIX_WIDTH; queue_x++) {
+	// 	uint8_t queue_slot = (queue_start + queue_x) % MAX_TRAVELLERS; // Figure out the next traveller's slot
+	// 	uint8_t queue_floor = queue_origin[queue_slot];
+	// 	uint8_t queue_dest = queue_destination[queue_slot] / 4;
+	// 	uint8_t queue_colour = get_traveller_destination(queue_dest);
+	// 	update_square_colour(queue_x + 4, queue_floor + 1, queue_colour);
+	// }
+	
 }
