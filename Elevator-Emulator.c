@@ -92,6 +92,7 @@ uint8_t switch_destination(void);
 uint8_t get_traveller_destination(uint8_t destination);
 void toggle_ssd(void);
 void update_floor_num(void);
+void play_tone(uint16_t frequency, uint16_t duration);
 
 /* Main */
 
@@ -148,6 +149,12 @@ void initialise_hardware(void) {
 
 	// Set CC high at first (left SSD is activated)
 	PORTC |= (1 << SSD_CC);
+
+	// Initialize buzzer
+	DDRD |= (1 << BUZZER);
+	TCCR2A = 0;
+	TCCR2B = 0;
+	TCNT2 = 0;
 }
 
 /**
@@ -260,6 +267,9 @@ void start_elevator_emulator(void) {
 
 			// Determine the status of traveller
 			if (traveller_active && current_position == traveller_floor) {
+				// Play tone for pick up
+				play_tone(500, 100);
+				
 				traveller_active = false;
 				traveller_moving = true;
 				
@@ -271,6 +281,9 @@ void start_elevator_emulator(void) {
 				destination = potential_destination;
 			}
 			if (traveller_moving && current_position == destination) {
+				// Play tone for drop off
+				play_tone(500, 100);
+				
 				traveller_moving = false;
 			}
 			
@@ -409,11 +422,16 @@ void handle_inputs(void) {
 			return;
 		}
 
+		// Play tone for traveller putted
+		play_tone(3000, 50);
+
 		// Create the traveller
 		traveller_active = true;
 		traveller_floor = potential_floor;
 		destination = traveller_floor;
 		traveller_destination = get_traveller_destination(destination_floor); // Used to indicate the colour
+
+
 	}
 	
 }
@@ -515,13 +533,13 @@ uint8_t get_traveller_destination(uint8_t destination) {
 }
 
 // Set the Port C and Port D digits for corresponding SSD display (0, 1, 2, 3)
-const uint8_t portc_digit[4] = {
+uint8_t portc_digit[4] = {
 	(1 << SSD_A) | (1 << SSD_D),
 	0,
 	(1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G),
 	(1 << SSD_A) | (1 << SSD_D) | (1 << SSD_G)
 };
-const uint8_t portd_digit[4] = {
+uint8_t portd_digit[4] = {
 	(1 << SSD_B) | (1 << SSD_C) | (1 << SSD_E) | (1 << SSD_F),
 	(1 << SSD_B) | (1 << SSD_C),
 	(1 << SSD_B) | (1 << SSD_E),
@@ -570,4 +588,26 @@ void update_floor_num(void) {
 		move_terminal_cursor(1, 4);
 		printf_P(PSTR("Floors without Traveller: %u"), floors_without_traveller);
 	}
+}
+
+// Called to play request tone
+void play_tone(uint16_t frequency, uint16_t duration) {
+	// Clear all bits and set as wanted
+	TCCR2A &= ~((1 << COM2A1) | (1 << WGM20));
+	TCCR2A |= (1 << WGM21) | (1 << COM2A0);
+
+	TCCR2B &= ~((1 << CS22) | (1 << CS21) | (1 << CS20) | (1 << WGM22));
+	TCCR2B = (1 << CS22);
+
+	OCR2A = (F_CPU / (2L * 64L * frequency)) - 1; // Use 64 as prescaler
+	TCNT2 = 0;
+
+	// Make the input of delay function to be constant
+	for(uint8_t i = 0; i < duration; i++) {
+		_delay_ms(1);
+	}
+
+	// Clear the bits
+	TCCR2B &= ~((1 << CS22) | (1 << CS21) | (1 << CS20));
+	PORTD &= ~(1 << BUZZER);
 }
