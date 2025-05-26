@@ -317,16 +317,7 @@ void start_elevator_emulator(void) {
 				// Redraw the traveller
 				draw_traveller();
 
-				
-
 				time_since_move = get_current_time(); // Reset delay until next movement update
-			}
-
-			// Toggle the SSD frequently to show both at the same time
-			if (get_current_time() - time_since_ssd_toggle > 0.1) {
-				toggle_ssd();
-				_delay_ms(2);  // Use delay to let cpu 'wait' for 1ms
-				time_since_ssd_toggle = get_current_time();
 			}
 			
 			// Handle any button or key inputs
@@ -334,6 +325,13 @@ void start_elevator_emulator(void) {
 
 			// Update the terminal info if needed
 			display_terminal_info(current_position, destination);
+		}
+		
+		// Toggle the SSD frequently to show both at the same time
+		if (get_current_time() - time_since_ssd_toggle > 0.1) {
+			toggle_ssd();
+			_delay_ms(2);  // Use delay to let cpu 'wait' for 1ms
+			time_since_ssd_toggle = get_current_time();
 		}
 	}
 }
