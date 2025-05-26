@@ -9,25 +9,27 @@
 
 /* Definitions */
 
-//#define F_CPU 8000000L
+#define F_CPU 8000000L
 
 // Define speed switching details
 #define FAST_SPEED 100
 #define SLOW_SPEED 300
-#define SPEED_SWITCH 7
+#define SPEED_SWITCH PC7
 // Define SSD connected pins
-#define SSD_A 4
-#define SSD_B 7
-#define SSD_C 6
-#define SSD_D 5
-#define SSD_E 5
-#define SSD_F 4
-#define SSD_G 6
-#define SSD_CC 1
-#define SSD_DP 0
+#define SSD_A PC4
+#define SSD_B PD2
+#define SSD_C PD3
+#define SSD_D PC5
+#define SSD_E PD5
+#define SSD_F PD4
+#define SSD_G PC6
+#define SSD_CC PD1
+#define SSD_DP PD0
 // Define destination swithes
-#define SWITCH_S0 2
-#define SWITCH_S1 3
+#define SWITCH_S0 PC2
+#define SWITCH_S1 PC3
+// Define buzzer
+#define BUZZER PD7
 
 /* External Library Includes */
 
@@ -101,6 +103,9 @@ int main(void) {
 	// Show the splash screen message. Returns when display is complete
 	start_screen();
 	
+	// Initialise the timer
+	init_timer0();
+
 	// Start elevator controller software
 	start_elevator_emulator();
 }
@@ -280,9 +285,11 @@ void start_elevator_emulator(void) {
 
 			time_since_move = get_current_time(); // Reset delay until next movement update
 		}
+
 		// Toggle the SSD frequently to show both at the same time
-		if (get_current_time() - time_since_ssd_toggle >= 0.1) {
+		if (get_current_time() - time_since_ssd_toggle > 0.1) {
 			toggle_ssd();
+			_delay_ms(2);  // Use delay to let cpu 'wait' for 1ms
 			time_since_ssd_toggle = get_current_time();
 		}
 		
@@ -561,6 +568,6 @@ void update_floor_num(void) {
 		move_terminal_cursor(1, 3);
 		printf_P(PSTR("Floors with Traveller: %u"), floors_with_traveller);
 		move_terminal_cursor(1, 4);
-		printf_P(PSTR("Floor without Traveller: %u"), floors_without_traveller);
+		printf_P(PSTR("Floors without Traveller: %u"), floors_without_traveller);
 	}
 }
