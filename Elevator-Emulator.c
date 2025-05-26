@@ -30,6 +30,11 @@
 #define SWITCH_S1 PC3
 // Define buzzer
 #define BUZZER PD7
+// Define LED
+#define LED0 PA0
+#define LED1 PA1
+#define LED2 PA2
+#define LED3 PA3
 
 /* External Library Includes */
 
@@ -74,7 +79,10 @@ uint32_t time_since_ssd_toggle;
 // To count the floors traveled
 uint8_t floors_with_traveller = 0;
 uint8_t floors_without_traveller = 0;
-int8_t previous_floor = 0;
+uint8_t previous_floor = 0;
+// For door animation status determine
+bool door_active = false;
+uint32_t door_start_time = 0;
 
 /* Internal Function Declarations */
 
@@ -93,6 +101,8 @@ uint8_t get_traveller_destination(uint8_t destination);
 void toggle_ssd(void);
 void update_floor_num(void);
 void play_tone(uint16_t frequency, uint16_t duration);
+void create_door_animation(void);
+void update_door_animation(void);
 
 /* Main */
 
@@ -155,6 +165,10 @@ void initialise_hardware(void) {
 	TCCR2A = 0;
 	TCCR2B = 0;
 	TCNT2 = 0;
+
+	// Initialize LED
+	DDRA |= (1 << LED0) | (1 << LED1) | (1 << LED2) | (1 << LED3);
+	PORTA &= ~((1 << LED0) | (1 << LED1) | (1 << LED2) | (1 << LED3));
 }
 
 /**
@@ -251,67 +265,76 @@ void start_elevator_emulator(void) {
 	destination = FLOOR_0;
 	
 	while(true) {
-		
-		// Update the Elevator as selected speed
-		if (get_current_time() - time_since_move > get_speed()) {	
-			
-			// Adjust the elevator based on where it needs to go
-			if (destination - current_position > 0) { // Move up
-				current_position++;
-			} else if (destination - current_position < 0) { // Move down
-				current_position--;
+		update_door_animation();
+
+		// Move the elevator if there's no active animation
+		if (!door_active) {	
+			// Update the Elevator as selected speed
+			if (get_current_time() - time_since_move > get_speed()) {	
+				
+				// Adjust the elevator based on where it needs to go
+				if (destination - current_position > 0) { // Move up
+					current_position++;
+				} else if (destination - current_position < 0) { // Move down
+					current_position--;
+				}
+
+				// Update the floor travelled
+				update_floor_num();
+
+				// Determine the status of traveller
+				if (traveller_active && current_position == traveller_floor) {
+					// Play tone for pick up
+					play_tone(500, 100);
+					
+					// Show the door animation for pick up
+					create_door_animation();
+
+					traveller_active = false;
+					traveller_moving = true;
+					
+					// Clear the LED
+					int8_t y = traveller_floor +1;
+					update_square_colour(4, y, MATRIX_COLOUR_EMPTY);
+					
+					// Move traveller to destination
+					destination = potential_destination;
+				}
+				if (traveller_moving && current_position == destination) {
+					// Play tone for drop off
+					play_tone(500, 100);
+					
+					// Show the door animation for drop off
+					create_door_animation();
+
+					traveller_moving = false;
+				}
+				
+				direction_ssd(current_position, destination);
+
+				// As we have potentially changed the elevator position, lets redraw it
+				draw_elevator();
+				// Redraw the traveller
+				draw_traveller();
+
+				
+
+				time_since_move = get_current_time(); // Reset delay until next movement update
 			}
 
-			// Update the floor travelled
-			update_floor_num();
-
-			// Determine the status of traveller
-			if (traveller_active && current_position == traveller_floor) {
-				// Play tone for pick up
-				play_tone(500, 100);
-				
-				traveller_active = false;
-				traveller_moving = true;
-				
-				// Clear the LED
-				int8_t y = traveller_floor +1;
-				update_square_colour(4, y, MATRIX_COLOUR_EMPTY);
-				
-				// Move traveller to destination
-				destination = potential_destination;
-			}
-			if (traveller_moving && current_position == destination) {
-				// Play tone for drop off
-				play_tone(500, 100);
-				
-				traveller_moving = false;
+			// Toggle the SSD frequently to show both at the same time
+			if (get_current_time() - time_since_ssd_toggle > 0.1) {
+				toggle_ssd();
+				_delay_ms(2);  // Use delay to let cpu 'wait' for 1ms
+				time_since_ssd_toggle = get_current_time();
 			}
 			
-			direction_ssd(current_position, destination);
+			// Handle any button or key inputs
+			handle_inputs();
 
-			// As we have potentially changed the elevator position, lets redraw it
-			draw_elevator();
-			// Redraw the traveller
-			draw_traveller();
-
-			
-
-			time_since_move = get_current_time(); // Reset delay until next movement update
+			// Update the terminal info if needed
+			display_terminal_info(current_position, destination);
 		}
-
-		// Toggle the SSD frequently to show both at the same time
-		if (get_current_time() - time_since_ssd_toggle > 0.1) {
-			toggle_ssd();
-			_delay_ms(2);  // Use delay to let cpu 'wait' for 1ms
-			time_since_ssd_toggle = get_current_time();
-		}
-		
-		// Handle any button or key inputs
-		handle_inputs();
-
-		// Update the terminal info if needed
-		display_terminal_info(current_position, destination);
-
 	}
 }
 
@@ -597,10 +620,10 @@ void play_tone(uint16_t frequency, uint16_t duration) {
 	TCCR2A |= (1 << WGM21) | (1 << COM2A0);
 
 	TCCR2B &= ~((1 << CS22) | (1 << CS21) | (1 << CS20) | (1 << WGM22));
-	TCCR2B = (1 << CS22);
+	TCCR2B |= (1 << CS22);
 
 	OCR2A = (F_CPU / (2L * 64L * frequency)) - 1; // Use 64 as prescaler
-	TCNT2 = 0;
+	TCNT2 = 0; // Reset time count back to 0
 
 	// Make the input of delay function to be constant
 	for(uint8_t i = 0; i < duration; i++) {
@@ -610,4 +633,39 @@ void play_tone(uint16_t frequency, uint16_t duration) {
 	// Clear the bits
 	TCCR2B &= ~((1 << CS22) | (1 << CS21) | (1 << CS20));
 	PORTD &= ~(1 << BUZZER);
+}
+
+// Call to create door animation when elevator arrived traveller or destination floor
+void create_door_animation(void) {
+	// Toggle the door status and get the start time
+	door_active = true;
+	door_start_time = get_current_time();
+
+	// Clear and set the led for the start scenario
+	PORTA &= ~((1 << LED0) | (1 << LED3));
+	PORTA |= (1 << LED1) | (1 << LED2);
+}
+
+// Call for update after create the door animation
+void update_door_animation(void) {
+	if (!door_active) {
+		return;
+	}
+	uint32_t time_since_door_start = get_current_time() - door_start_time;
+
+	if (time_since_door_start < 400) {
+		// Do nothing
+	} else if (time_since_door_start < 800) {
+		// Door open
+		PORTA &= ~((1 << LED1) | (1 << LED2));
+		PORTA |= (1 << LED0) | (1 << LED3);
+	} else if (time_since_door_start < 1200) {
+		// Door close
+		PORTA &= ~((1 << LED0) | (1 << LED3));
+		PORTA |= (1 << LED1) | (1 << LED2);
+	} else {
+		// Turn off the animation after pick up or drop off
+		door_active = false;
+		PORTA &= ~((1 << LED0) | (1 << LED1) | (1 << LED2) | (1 << LED3));
+	}
 }
