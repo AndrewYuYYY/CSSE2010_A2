@@ -652,7 +652,8 @@ void toggle_ssd(void) {
 void update_floor_num(void) {
 	int8_t current_floor = current_position / 4; // Set for later comparison
 	if  (current_floor != previous_floor) {
-		if (traveller_moving) { // Judge if the elevator moved any tranveller
+		// if (traveller_moving) { // Judge if the elevator moved any tranveller
+		if (queue_move && queue_stage == 1) {
 			floors_with_traveller++;
 		} else {
 			floors_without_traveller++;
